@@ -18,8 +18,10 @@ pub fn run() {
 
             // 初始化 PLC 任务调度器
             let app_handle = app.handle();
+            notice::set_app(app_handle.clone());
+
             tauri::async_runtime::block_on(async {
-                if let Err(e) = plc::initialize(app_handle.clone()).await {
+                if let Err(e) = plc::initialize().await {
                     eprintln!("任务调度器启动失败: {}", e);
                 }
             });

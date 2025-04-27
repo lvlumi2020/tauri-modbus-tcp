@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::sync::Mutex;
 use tauri::Emitter;
 
 #[derive(Serialize, Clone)]
@@ -29,12 +30,31 @@ pub struct FloatValue {
     pub value: f32,
 }
 
-pub fn notify_bool(app: tauri::AppHandle, client_id: i64, address: u16, value: bool) {
+// 添加全局静态变量
+static APP: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
+
+// 添加设置方法
+pub fn set_app(app: tauri::AppHandle) {
+    let mut app_handle = APP.lock().unwrap();
+    *app_handle = Some(app);
+}
+
+// 获取 app handle 的辅助函数
+fn get_app() -> tauri::AppHandle {
+    APP.lock()
+        .unwrap()
+        .clone()
+        .expect("App handle not initialized")
+}
+
+pub fn notify_bool(client_id: i64, address: u16, value: bool) {
     #[cfg(debug_assertions)]
     println!(
         "发送布尔值更新 - Client Id: {}, Address: {}, Value: {}",
         client_id, address, value
     );
+
+    let app = get_app();
 
     if let Err(e) = app.emit(
         "plc-bool-update",
@@ -48,12 +68,14 @@ pub fn notify_bool(app: tauri::AppHandle, client_id: i64, address: u16, value: b
     }
 }
 
-pub fn notify_word(app: tauri::AppHandle, client_id: i64, address: u16, value: u16) {
+pub fn notify_word(client_id: i64, address: u16, value: u16) {
     #[cfg(debug_assertions)]
     println!(
         "发送字值更新 - Client Id: {}, Address: {}, Value: {}",
         client_id, address, value
     );
+
+    let app = get_app();
 
     if let Err(e) = app.emit(
         "plc-word-update",
@@ -67,12 +89,14 @@ pub fn notify_word(app: tauri::AppHandle, client_id: i64, address: u16, value: u
     }
 }
 
-pub fn notify_dword(app: tauri::AppHandle, client_id: i64, address: u16, value: u32) {
+pub fn notify_dword(client_id: i64, address: u16, value: u32) {
     #[cfg(debug_assertions)]
     println!(
         "发送双字值更新 - Client Id: {}, Address: {}, Value: {}",
         client_id, address, value
     );
+
+    let app = get_app();
 
     if let Err(e) = app.emit(
         "plc-dword-update",
@@ -86,12 +110,14 @@ pub fn notify_dword(app: tauri::AppHandle, client_id: i64, address: u16, value: 
     }
 }
 
-pub fn notify_float(app: tauri::AppHandle, client_id: i64, address: u16, value: f32) {
+pub fn notify_float(client_id: i64, address: u16, value: f32) {
     #[cfg(debug_assertions)]
     println!(
         "发送浮点值更新 - Client Id: {}, Address: {}, Value: {}",
         client_id, address, value
     );
+
+    let app = get_app();
 
     if let Err(e) = app.emit(
         "plc-float-update",

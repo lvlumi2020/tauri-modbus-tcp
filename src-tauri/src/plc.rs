@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::AppHandle;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -19,9 +18,6 @@ pub enum TaskError {
     #[error("Modbus 错误: {0}")]
     ModbusError(#[from] ModbusError),
 
-    #[error("应用句柄未设置")]
-    AppHandleNotSet,
-
     #[error("其他错误: {0}")]
     Other(String),
 }
@@ -34,7 +30,6 @@ pub struct TaskScheduler {
     timer_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     counter: Arc<Mutex<u64>>,
     running: Arc<Mutex<bool>>,
-    app: Arc<Mutex<Option<AppHandle>>>,
 }
 
 lazy_static! {
@@ -77,13 +72,7 @@ impl TaskScheduler {
             timer_handle: Arc::new(Mutex::new(None)),
             counter: Arc::new(Mutex::new(0)),
             running: Arc::new(Mutex::new(false)),
-            app: Arc::new(Mutex::new(None)),
         }
-    }
-
-    pub async fn set_app_handle(&self, app: AppHandle) {
-        let mut app_handle = self.app.lock().await;
-        *app_handle = Some(app);
     }
 
     fn generate_task_id(client_id: i64, address: u16) -> i64 {
@@ -149,19 +138,10 @@ impl TaskScheduler {
             return Ok(());
         }
 
-        // 检查是否设置了应用句柄
-        {
-            let app = self.app.lock().await;
-            if app.is_none() {
-                return Err(TaskError::AppHandleNotSet);
-            }
-        }
-
         let tasks = self.tasks.clone();
         let tasks_by_interval = self.tasks_by_interval.clone();
         let counter = self.counter.clone();
         let running_clone = self.running.clone();
-        let app = self.app.clone();
 
         let handle = tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_millis(1));
@@ -198,13 +178,10 @@ impl TaskScheduler {
                 };
 
                 // 执行任务
-                let app_handle = app.lock().await;
-                if let Some(app_handle) = app_handle.as_ref() {
-                    let tasks = tasks.lock().await;
-                    for task_id in tasks_to_execute {
-                        if let Some(task) = tasks.get(&task_id) {
-                            Self::execute_task(app_handle.clone(), task).await;
-                        }
+                let tasks = tasks.lock().await;
+                for task_id in tasks_to_execute {
+                    if let Some(task) = tasks.get(&task_id) {
+                        Self::execute_task(task).await;
                     }
                 }
             }
@@ -217,7 +194,7 @@ impl TaskScheduler {
         Ok(())
     }
 
-    async fn execute_task(app_handle: AppHandle, task: &TaskDefinition) {
+    async fn execute_task(task: &TaskDefinition) {
         match task.data_type {
             DataType::Bool => {
                 if let Ok(values) = MODBUS_MANAGER
@@ -225,7 +202,7 @@ impl TaskScheduler {
                     .await
                 {
                     if let Some(&value) = values.first() {
-                        notify_bool(app_handle.clone(), task.client_id, task.address, value);
+                        notify_bool(task.client_id, task.address, value);
                     }
                 }
             }
@@ -235,7 +212,7 @@ impl TaskScheduler {
                     .await
                 {
                     if let Some(&value) = values.first() {
-                        notify_word(app_handle.clone(), task.client_id, task.address, value);
+                        notify_word(task.client_id, task.address, value);
                     }
                 }
             }
@@ -246,7 +223,7 @@ impl TaskScheduler {
                 {
                     if values.len() >= 2 {
                         let value = (values[1] as u32) << 16 | (values[0] as u32);
-                        notify_dword(app_handle.clone(), task.client_id, task.address, value);
+                        notify_dword(task.client_id, task.address, value);
                     }
                 }
             }
@@ -258,7 +235,7 @@ impl TaskScheduler {
                     if values.len() >= 2 {
                         let bits = (values[1] as u32) << 16 | (values[0] as u32);
                         let value = f32::from_bits(bits);
-                        notify_float(app_handle.clone(), task.client_id, task.address, value);
+                        notify_float(task.client_id, task.address, value);
                     }
                 }
             }
@@ -282,7 +259,6 @@ impl TaskScheduler {
     }
 }
 
-pub async fn initialize(app: AppHandle) -> Result<()> {
-    TASK_SCHEDULER.set_app_handle(app).await;
+pub async fn initialize() -> Result<()> {
     TASK_SCHEDULER.start().await
 }
