@@ -78,8 +78,8 @@ export default function Home() {
             clientId: clientId!,
             address: Number(address),
             values: [
-              (dwordValue >> 16) & 0xFFFF, // 低16位
               dwordValue & 0xFFFF,      // 高16位
+              (dwordValue >> 16) & 0xFFFF, // 低16位
             ]
           });
           break;
@@ -90,8 +90,8 @@ export default function Home() {
             clientId: clientId!,
             address: Number(address),
             values: [
-              new DataView(floatBuffer).getUint16(2, true),   // 低16位
               new DataView(floatBuffer).getUint16(0, true),   // 高16位
+              new DataView(floatBuffer).getUint16(2, true),   // 低16位
             ]
           });
           break;

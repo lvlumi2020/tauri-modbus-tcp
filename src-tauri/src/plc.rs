@@ -245,7 +245,7 @@ impl TaskScheduler {
                     .await
                 {
                     if values.len() >= 2 {
-                        let value = (values[0] as u32) << 16 | (values[1] as u32);
+                        let value = (values[1] as u32) << 16 | (values[0] as u32);
                         notify_dword(app_handle.clone(), task.client_id, task.address, value);
                     }
                 }
@@ -256,7 +256,7 @@ impl TaskScheduler {
                     .await
                 {
                     if values.len() >= 2 {
-                        let bits = (values[0] as u32) << 16 | (values[1] as u32);
+                        let bits = (values[1] as u32) << 16 | (values[0] as u32);
                         let value = f32::from_bits(bits);
                         notify_float(app_handle.clone(), task.client_id, task.address, value);
                     }
