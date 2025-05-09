@@ -1,5 +1,6 @@
 mod command;
 mod modbus;
+// mod modbus_tcp;
 mod notice;
 mod plc;
 
@@ -29,7 +30,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            command::modbus_create_connection,
+            command::modbus_create_tcp_connection,
+            command::modbus_create_serial_connection,
             command::modbus_disconnect,
             command::modbus_connection_exists,
             command::modbus_read_holding_registers,
@@ -42,6 +44,7 @@ pub fn run() {
             command::plc_start,
             command::plc_register_task,
             command::plc_unregister_task,
+            command::get_serial_ports,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

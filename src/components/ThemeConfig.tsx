@@ -2,7 +2,7 @@
 
 import { ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import React, { useEffect, useState, ReactNode } from 'react';
+import React, { useEffect, useState, ReactNode, useCallback } from 'react';
 
 interface ThemeConfigProps {
     children: ReactNode
@@ -11,7 +11,7 @@ interface ThemeConfigProps {
 const ThemeConfig: React.FC<ThemeConfigProps> = ({ children }) => {
 
     const [isDarkTheme, setIsDarkTheme] = useState<boolean>(false)
-    const bgColor = () => isDarkTheme ? "black" : "white";
+    const bgColor = useCallback(() => isDarkTheme ? "black" : "white", [isDarkTheme]);
     useEffect(() => {
         const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
         setIsDarkTheme(darkModeQuery.matches);
@@ -22,7 +22,7 @@ const ThemeConfig: React.FC<ThemeConfigProps> = ({ children }) => {
 
     useEffect(() => {
         process.env.DEFAULT_BACKGROUND_COLOR = bgColor();
-    }, [isDarkTheme])
+    }, [bgColor])
 
     return (
         <main>

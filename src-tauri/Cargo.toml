@@ -23,12 +23,14 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.2.4", features = [] }
 tauri-plugin-log = "2.0.0-rc"
-tokio-modbus = { version = "0.8", default-features = false, features = ["tcp"] }
+tokio-modbus = { version = "0.8", default-features = false, features = ["tcp", "rtu"] }
 tokio = { version = "1", features = ["full"] }
+tokio-serial = "5.4.4"
 lazy_static = "1.4.0"
 dns-lookup = "2.0.4"
 regex = "1.10.2"
 thiserror = "1.0"
+serialport = "4.2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
