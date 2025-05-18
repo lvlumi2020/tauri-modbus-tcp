@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { Button, Space, Modal, Form, Input, Select } from 'antd';
 import {
-    modbusWriteSingleCoil,
-    modbusWriteSingleRegister,
-    modbusWriteMultipleRegisters
+    plcWriteBool,
+    plcWriteDWord,
+    plcWriteFloat,
+    plcWriteWord
 } from '@/rust-comms';
 
 interface ValueSetterProps {
@@ -16,6 +17,8 @@ const ValueSetter: React.FC<ValueSetterProps> = ({ clientId }) => {
     const [isSetValueModalOpen, setIsSetValueModalOpen] = useState(false);
     const [setValueForm] = Form.useForm();
 
+    const [isBool, setIsBool] = useState<boolean>(false);
+
     const handleSetValue = async (values: any) => {
         if (!clientId) return;
 
@@ -23,41 +26,16 @@ const ValueSetter: React.FC<ValueSetterProps> = ({ clientId }) => {
         try {
             switch (Number(dataType)) {
                 case 1: // Bool
-                    await modbusWriteSingleCoil({
-                        clientId: clientId,
-                        address: Number(address),
-                        value: value.toLowerCase() === 'true'
-                    });
+                    await plcWriteBool(clientId, Number(address), value.toLowerCase() === 'true');
                     break;
                 case 2: // Word
-                    await modbusWriteSingleRegister({
-                        clientId: clientId,
-                        address: Number(address),
-                        value: parseInt(value)
-                    });
+                    await plcWriteWord(clientId, Number(address), parseInt(value));
                     break;
                 case 3: // DWord
-                    const dwordValue = parseInt(value);
-                    await modbusWriteMultipleRegisters({
-                        clientId: clientId,
-                        address: Number(address),
-                        values: [
-                            dwordValue & 0xFFFF,      // 高16位
-                            (dwordValue >> 16) & 0xFFFF, // 低16位
-                        ]
-                    });
+                    await plcWriteDWord(clientId, Number(address), parseInt(value));
                     break;
                 case 4: // Float
-                    const floatBuffer = new ArrayBuffer(4);
-                    new DataView(floatBuffer).setFloat32(0, parseFloat(value), true); // true表示小端序
-                    await modbusWriteMultipleRegisters({
-                        clientId: clientId,
-                        address: Number(address),
-                        values: [
-                            new DataView(floatBuffer).getUint16(0, true),   // 高16位
-                            new DataView(floatBuffer).getUint16(2, true),   // 低16位
-                        ]
-                    });
+                    await plcWriteFloat(clientId, Number(address), parseFloat(value));
                     break;
             }
             setIsSetValueModalOpen(false);
@@ -113,7 +91,9 @@ const ValueSetter: React.FC<ValueSetterProps> = ({ clientId }) => {
                         name="dataType"
                         rules={[{ required: true, message: '请选择数据类型!' }]}
                     >
-                        <Select>
+                        <Select onSelect={(value) => {
+                            setIsBool(Number(value) == 1);
+                        }}>
                             <Select.Option value="1">Bool</Select.Option>
                             <Select.Option value="2">Word</Select.Option>
                             <Select.Option value="3">DWord</Select.Option>
@@ -125,7 +105,12 @@ const ValueSetter: React.FC<ValueSetterProps> = ({ clientId }) => {
                         name="value"
                         rules={[{ required: true, message: '请输入值!' }]}
                     >
-                        <Input autoComplete="off" placeholder="布尔值输入 true/false，数值直接输入" />
+                        {isBool ?
+                            <Select >
+                                <Select.Option value="false">False</Select.Option>
+                                <Select.Option value="true">True</Select.Option>
+                            </Select>
+                            : <Input autoComplete="off" placeholder="输入值" />}
                     </Form.Item>
                     <Form.Item>
                         <Space>

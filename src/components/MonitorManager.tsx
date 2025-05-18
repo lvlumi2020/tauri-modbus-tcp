@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from 'react';
-import { Button, Space, Modal, Form, Input, Select, Table } from 'antd';
+import { useMemo, useState } from 'react';
+import { Button, Space, Modal, Form, Input, Select, Table, Switch } from 'antd';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { ColumnsType } from 'antd/lib/table';
 import { useMonitor } from '@/hooks';
@@ -10,12 +10,65 @@ interface MonitorManagerProps {
     clientId: number | undefined;
 }
 
+interface MonitorData {
+    key: string;
+    address: number;
+    dataType: number;
+    readOnly: boolean;
+    value: number | boolean;
+}
+
 const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
     const [isMonitorModalOpen, setIsMonitorModalOpen] = useState(false);
     const [monitorForm] = Form.useForm();
 
     // 使用自定义钩子管理监控状态
-    const { isMonitoring, monitorValues, startMonitor, stopMonitor, unregisterItem } = useMonitor(clientId);
+    const { isMonitoring, monitorItems, monitorValues, startMonitor, stopMonitor, unregisterItem } = useMonitor(clientId);
+
+    const [isBools, setIsBools] = useState<Set<number>>(new Set([]));
+
+    const monitorData = useMemo<MonitorData[]>(() => {
+        let data: MonitorData[] = []
+        monitorItems?.forEach(([address, dataType, readOnly]) => {
+            if (dataType == 1) {
+                if (address in monitorValues[0]) {
+                    data.push({
+                        key: `11${address}`,
+                        address,
+                        dataType,
+                        readOnly,
+                        value: monitorValues[0][address]
+                    })
+                }
+            }
+            else {
+                if (readOnly) {
+                    if (address in monitorValues[1][0]) {
+                        data.push({
+                            key: `01${address}`,
+                            address,
+                            dataType,
+                            readOnly,
+                            value: monitorValues[1][0][address]
+                        })
+                    }
+                }
+                else {
+                    if (address in monitorValues[1][1]) {
+                        data.push({
+                            key: `00${address}`,
+                            address,
+                            dataType,
+                            readOnly,
+                            value: monitorValues[1][1][address]
+                        })
+                    }
+                }
+            }
+        });
+        console.log(data)
+        return data;
+    }, [monitorItems, monitorValues])
 
     // 表格列定义
     const tableColumns: ColumnsType = [
@@ -23,7 +76,12 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
         {
             title: '数据类型', dataIndex: 'dataType', key: 'dataType',
             width: 120,
-            render: (type: number) => ['', 'Bool', 'Word', 'DWord', 'Float'][type]
+            render: (value: number) => ['Bool', 'Word', 'Dword', 'Float'][value - 1]
+        },
+        {
+            title: '是否只读', dataIndex: 'readOnly', key: 'readOnly',
+            width: 120,
+            render: (value: boolean) => value ? "是" : "否"
         },
         {
             title: '值', dataIndex: 'value', key: 'value',
@@ -67,7 +125,7 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
             {isMonitoring && Object.keys(monitorValues).length > 0 && (
                 <div style={{ marginTop: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
                     <Table
-                        dataSource={Object.values(monitorValues)}
+                        dataSource={monitorData}
                         columns={tableColumns}
                         rowKey="address"
                         pagination={false}
@@ -92,7 +150,7 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
                     <Form.List name="items">
                         {(fields, { add, remove }) => (
                             <>
-                                {fields.map(({ key, name, ...restField }) => (
+                                {fields.map(({ key, name, ...restField }, index, array) => (
                                     <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
                                         <Form.Item
                                             {...restField}
@@ -106,18 +164,44 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
                                             name={[name, 'dataType']}
                                             rules={[{ required: true, message: '请选择数据类型' }]}
                                         >
-                                            <Select style={{ width: 120 }}>
+                                            <Select style={{ width: 120 }} onSelect={(value: string) => {
+                                                const newSet = new Set(isBools)
+                                                if (Number(value) == 1) {
+                                                    newSet.add(index);
+                                                    let values = monitorForm.getFieldsValue();
+                                                    values.items[index].readOnly = false;
+                                                    monitorForm.setFieldsValue(values)
+                                                    setIsBools(newSet);
+                                                }
+                                                else {
+                                                    newSet.delete(index);
+                                                    setIsBools(newSet);
+                                                }
+                                            }}>
                                                 <Select.Option value="1">Bool</Select.Option>
                                                 <Select.Option value="2">Word</Select.Option>
                                                 <Select.Option value="3">DWord</Select.Option>
                                                 <Select.Option value="4">Float</Select.Option>
                                             </Select>
                                         </Form.Item>
+                                        <Form.Item
+                                            {...restField}
+                                            name={[name, 'readOnly']}
+                                            initialValue={false}
+                                        >
+                                            <Switch
+                                                disabled={isBools.has(index)}
+                                                checkedChildren="只读"
+                                                unCheckedChildren="读写"
+                                            />
+                                        </Form.Item>
                                         <MinusCircleOutlined onClick={async () => {
                                             if (!clientId) return;
                                             const address = monitorForm.getFieldValue(['items', name, 'address']);
+                                            const dataType = monitorForm.getFieldValue(['items', name, 'dataType']);
+                                            const readOnly = monitorForm.getFieldValue(['items', name, 'readOnly']) as boolean;
                                             if (address) {
-                                                await unregisterItem(Number(address));
+                                                await unregisterItem(address, dataType, readOnly);
                                             }
                                             remove(name);
                                         }} />

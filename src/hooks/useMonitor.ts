@@ -3,72 +3,78 @@ import {
   plcRegisterTask,
   plcUnregisterTask,
   plcStart,
-  plcBoolUpdateEventListener,
-  plcWordUpdateEventListener,
-  plcDwordUpdateEventListener,
-  plcFloatUpdateEventListener,
+  listenPlcBoolUpdate,
+  listenPlcDwordUpdate,
+  listenPlcFloatUpdate,
+  listenPlcWordUpdate,
 } from "@/rust-comms";
 
-interface MonitorValue {
-  address: number;
-  value: boolean | number;
-  dataType: number;
-}
+export type MonitorValue = [
+  Record<number, boolean>,
+  [Record<number, number>, Record<number, number>],
+];
 
 /**
  * 自定义钩子，用于管理Modbus监控状态
- * @param clientId 当前连接的客户端ID
+ * @param currentClientId 当前连接的客户端ID
  */
-export const useMonitor = (clientId: number | undefined) => {
+export const useMonitor = (currentClientId: number | undefined) => {
   const [isMonitoring, setIsMonitoring] = useState(false);
-  const [monitorValues, setMonitorValues] = useState<
-    Record<number, MonitorValue>
-  >({});
+  const [monitorValues, setMonitorValues] = useState<MonitorValue>([
+    {},
+    [{}, {}],
+  ]);
   const [listeners, setListeners] = useState<Promise<() => void>[]>([]);
   const [unregisters, setUnregisters] = useState<(() => Promise<void>)[]>([]);
+  const [monitorItems, setMonitorItems] = useState<
+    Set<[number, number, boolean]>
+  >(new Set());
 
   // 设置监听器
   const setupListeners = async () => {
     const newListeners = [
-      plcBoolUpdateEventListener((data) => {
-        setMonitorValues((prev) => ({
-          ...prev,
-          [data.address]: {
-            address: data.address,
-            value: data.value,
-            dataType: 1,
+      listenPlcBoolUpdate(({ clientId, address, value }) => {
+        if (clientId != currentClientId) return;
+        setMonitorValues((prev) => [
+          {
+            ...prev[0],
+            [address]: value,
           },
-        }));
+          [{ ...prev[1][0] }, { ...prev[1][1] }],
+        ]);
       }),
-      plcWordUpdateEventListener((data) => {
-        setMonitorValues((prev) => ({
-          ...prev,
-          [data.address]: {
-            address: data.address,
-            value: data.value,
-            dataType: 2,
+      listenPlcDwordUpdate(({ clientId, address, readOnly, value }) => {
+        if (clientId != currentClientId) return;
+        setMonitorValues((prev) => [
+          {
+            ...prev[0],
           },
-        }));
+          readOnly
+            ? [{ ...prev[1][0], [address]: value }, { ...prev[1][1] }]
+            : [{ ...prev[1][0] }, { ...prev[1][1], [address]: value }],
+        ]);
       }),
-      plcDwordUpdateEventListener((data) => {
-        setMonitorValues((prev) => ({
-          ...prev,
-          [data.address]: {
-            address: data.address,
-            value: data.value,
-            dataType: 3,
+      listenPlcFloatUpdate(({ clientId, address, readOnly, value }) => {
+        if (clientId != currentClientId) return;
+        setMonitorValues((prev) => [
+          {
+            ...prev[0],
           },
-        }));
+          readOnly
+            ? [{ ...prev[1][0], [address]: value }, { ...prev[1][1] }]
+            : [{ ...prev[1][0] }, { ...prev[1][1], [address]: value }],
+        ]);
       }),
-      plcFloatUpdateEventListener((data) => {
-        setMonitorValues((prev) => ({
-          ...prev,
-          [data.address]: {
-            address: data.address,
-            value: data.value,
-            dataType: 4,
+      listenPlcWordUpdate(({ clientId, address, readOnly, value }) => {
+        if (clientId != currentClientId) return;
+        setMonitorValues((prev) => [
+          {
+            ...prev[0],
           },
-        }));
+          readOnly
+            ? [{ ...prev[1][0], [address]: value }, { ...prev[1][1] }]
+            : [{ ...prev[1][0] }, { ...prev[1][1], [address]: value }],
+        ]);
       }),
     ];
     setListeners(newListeners);
@@ -85,27 +91,42 @@ export const useMonitor = (clientId: number | undefined) => {
       await unregister();
     }
     setListeners([]);
-    setMonitorValues({});
+    setMonitorValues([{}, [{}, {}]]);
   };
 
   // 开始监控
   const startMonitor = async (
-    items: { address: string; dataType: string }[]
+    items: {
+      address: string | number;
+      dataType: string | number;
+      readOnly: boolean;
+    }[]
   ) => {
-    if (!clientId) return;
+    if (!currentClientId) return;
 
     let newUnregisters: (() => Promise<void>)[] = [];
+    let set = new Set<[number, number, boolean]>();
     for (const item of items || []) {
-      await plcRegisterTask({
-        clientId: clientId,
-        address: Number(item.address),
-        intervalMs: 1000,
-        dataType: Number(item.dataType),
-      });
+      const { address, dataType, readOnly } = item;
+      await plcRegisterTask(
+        currentClientId,
+        1000,
+        Number(address),
+        Number(dataType),
+        readOnly
+      );
+      set.add([Number(address), Number(dataType), readOnly]);
+
       newUnregisters.push(() =>
-        plcUnregisterTask({ clientId: clientId, address: Number(item.address) })
+        plcUnregisterTask(
+          currentClientId,
+          Number(address),
+          Number(dataType),
+          readOnly
+        )
       );
     }
+    setMonitorItems(set);
     setUnregisters(newUnregisters);
     await setupListeners();
     setIsMonitoring(true);
@@ -118,13 +139,23 @@ export const useMonitor = (clientId: number | undefined) => {
   };
 
   // 注销单个监控项
-  const unregisterItem = async (address: number) => {
-    if (!clientId) return;
-    await plcUnregisterTask({ clientId, address });
+  const unregisterItem = async (
+    address: string | number,
+    dataType: string | number,
+    readOnly: boolean
+  ) => {
+    if (!currentClientId) return;
+    await plcUnregisterTask(
+      currentClientId,
+      Number(address),
+      Number(dataType),
+      readOnly
+    );
   };
 
   return {
     isMonitoring,
+    monitorItems,
     monitorValues,
     startMonitor,
     stopMonitor,

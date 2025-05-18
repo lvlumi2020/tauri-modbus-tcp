@@ -2,28 +2,11 @@ import {
   modbusCreateTCPConnection,
   modbusDisconnect,
   modbusConnectionExists,
-  modbusReadHoldingRegisters,
-  modbusWriteSingleRegister,
-  modbusWriteMultipleRegisters,
-  modbusReadInputRegisters,
-  modbusReadCoils,
-  modbusWriteSingleCoil,
   plcStart,
   plcStop,
   plcRegisterTask,
   plcUnregisterTask,
 } from "../rust-comms/calling";
-
-import {
-  ModbusCreateTCPConnectionParam,
-  ModbusClientParam,
-  ModbusRegisterParam,
-  ModbusWriteSingleRegisterParam,
-  ModbusWriteMultipleRegistersParam,
-  ModbusWriteSingleCoilParam,
-  PlcRegisterTaskParam,
-  PlcUnregisterTaskParam,
-} from "../rust-comms/types";
 
 /**
  * ModbusTCP服务单例类
@@ -56,11 +39,12 @@ export class ModbusService {
    * @param param 连接参数，包含IP和端口
    * @returns 连接ID
    */
-  public async createConnection(
-    param: ModbusCreateTCPConnectionParam
-  ): Promise<number> {
+  public async createConnection(param: {
+    ip: string;
+    port: number;
+  }): Promise<number> {
     try {
-      const clientId = await modbusCreateTCPConnection(param);
+      const clientId = await modbusCreateTCPConnection(param.ip, param.port);
       this.activeConnections.set(clientId, { ip: param.ip, port: param.port });
       return clientId;
     } catch (error) {
@@ -73,10 +57,10 @@ export class ModbusService {
    * 断开Modbus TCP连接
    * @param param 客户端参数，包含客户端ID
    */
-  public async disconnect(param: ModbusClientParam): Promise<void> {
+  public async disconnect(clientId: number): Promise<void> {
     try {
-      await modbusDisconnect(param);
-      this.activeConnections.delete(param.clientId);
+      await modbusDisconnect(clientId);
+      this.activeConnections.delete(clientId);
     } catch (error) {
       console.error("断开Modbus连接失败:", error);
       throw error;
@@ -88,102 +72,11 @@ export class ModbusService {
    * @param param 客户端参数，包含客户端ID
    * @returns 连接是否存在
    */
-  public async connectionExists(param: ModbusClientParam): Promise<boolean> {
+  public async connectionExists(clientId: number): Promise<boolean> {
     try {
-      return await modbusConnectionExists(param);
+      return await modbusConnectionExists(clientId);
     } catch (error) {
       console.error("检查Modbus连接失败:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 读取保持寄存器
-   * @param param 寄存器参数，包含客户端ID、地址和数量
-   * @returns 寄存器值数组
-   */
-  public async readHoldingRegisters(
-    param: ModbusRegisterParam
-  ): Promise<number[]> {
-    try {
-      return await modbusReadHoldingRegisters(param);
-    } catch (error) {
-      console.error("读取保持寄存器失败:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 写入单个寄存器
-   * @param param 写入参数，包含客户端ID、地址和值
-   */
-  public async writeSingleRegister(
-    param: ModbusWriteSingleRegisterParam
-  ): Promise<void> {
-    try {
-      await modbusWriteSingleRegister(param);
-    } catch (error) {
-      console.error("写入单个寄存器失败:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 写入多个寄存器
-   * @param param 写入参数，包含客户端ID、地址和值数组
-   */
-  public async writeMultipleRegisters(
-    param: ModbusWriteMultipleRegistersParam
-  ): Promise<void> {
-    try {
-      await modbusWriteMultipleRegisters(param);
-    } catch (error) {
-      console.error("写入多个寄存器失败:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 读取输入寄存器
-   * @param param 寄存器参数，包含客户端ID、地址和数量
-   * @returns 寄存器值数组
-   */
-  public async readInputRegisters(
-    param: ModbusRegisterParam
-  ): Promise<number[]> {
-    try {
-      return await modbusReadInputRegisters(param);
-    } catch (error) {
-      console.error("读取输入寄存器失败:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 读取线圈
-   * @param param 寄存器参数，包含客户端ID、地址和数量
-   * @returns 线圈状态数组
-   */
-  public async readCoils(param: ModbusRegisterParam): Promise<boolean[]> {
-    try {
-      return await modbusReadCoils(param);
-    } catch (error) {
-      console.error("读取线圈失败:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 写入单个线圈
-   * @param param 写入参数，包含客户端ID、地址和值
-   */
-  public async writeSingleCoil(
-    param: ModbusWriteSingleCoilParam
-  ): Promise<void> {
-    try {
-      await modbusWriteSingleCoil(param);
-    } catch (error) {
-      console.error("写入单个线圈失败:", error);
       throw error;
     }
   }
@@ -216,9 +109,15 @@ export class ModbusService {
    * 注册PLC任务
    * @param param 任务参数
    */
-  public async registerPLCTask(param: PlcRegisterTaskParam): Promise<void> {
+  public async registerPLCTask(
+    clientId: number,
+    intervalMs: number,
+    address: number,
+    dataType: number,
+    readOnly: boolean
+  ): Promise<void> {
     try {
-      await plcRegisterTask(param);
+      await plcRegisterTask(clientId, intervalMs, address, dataType, readOnly);
     } catch (error) {
       console.error("注册PLC任务失败:", error);
       throw error;
@@ -229,9 +128,14 @@ export class ModbusService {
    * 注销PLC任务
    * @param param 任务参数
    */
-  public async unregisterPLCTask(param: PlcUnregisterTaskParam): Promise<void> {
+  public async unregisterPLCTask(
+    clientId: number,
+    address: number,
+    dataType: number,
+    readOnly: boolean
+  ): Promise<void> {
     try {
-      await plcUnregisterTask(param);
+      await plcUnregisterTask(clientId, address, dataType, readOnly);
     } catch (error) {
       console.error("注销PLC任务失败:", error);
       throw error;
@@ -252,7 +156,7 @@ export class ModbusService {
   public async disconnectAll(): Promise<void> {
     const connectionIds = Array.from(this.activeConnections.keys());
     for (const clientId of connectionIds) {
-      await this.disconnect({ clientId });
+      await this.disconnect(clientId);
     }
   }
 }

@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use tauri::Emitter;
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct BoolValue {
     pub client_id: i64,
     pub address: u16,
@@ -10,23 +11,29 @@ pub struct BoolValue {
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct WordValue {
     pub client_id: i64,
     pub address: u16,
+    pub read_only: bool,
     pub value: u16,
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DwordValue {
     pub client_id: i64,
     pub address: u16,
+    pub read_only: bool,
     pub value: u32,
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct FloatValue {
     pub client_id: i64,
     pub address: u16,
+    pub read_only: bool,
     pub value: f32,
 }
 
@@ -47,6 +54,7 @@ fn get_app() -> tauri::AppHandle {
         .expect("App handle not initialized")
 }
 
+#[tauri::command]
 pub fn notify_bool(client_id: i64, address: u16, value: bool) {
     #[cfg(debug_assertions)]
     println!(
@@ -68,7 +76,8 @@ pub fn notify_bool(client_id: i64, address: u16, value: bool) {
     }
 }
 
-pub fn notify_word(client_id: i64, address: u16, value: u16) {
+#[tauri::command]
+pub fn notify_word(client_id: i64, address: u16, read_only: bool, value: u16) {
     #[cfg(debug_assertions)]
     println!(
         "发送字值更新 - Client Id: {}, Address: {}, Value: {}",
@@ -82,6 +91,7 @@ pub fn notify_word(client_id: i64, address: u16, value: u16) {
         WordValue {
             client_id,
             address,
+            read_only,
             value,
         },
     ) {
@@ -89,7 +99,8 @@ pub fn notify_word(client_id: i64, address: u16, value: u16) {
     }
 }
 
-pub fn notify_dword(client_id: i64, address: u16, value: u32) {
+#[tauri::command]
+pub fn notify_dword(client_id: i64, address: u16, read_only: bool, value: u32) {
     #[cfg(debug_assertions)]
     println!(
         "发送双字值更新 - Client Id: {}, Address: {}, Value: {}",
@@ -103,6 +114,7 @@ pub fn notify_dword(client_id: i64, address: u16, value: u32) {
         DwordValue {
             client_id,
             address,
+            read_only,
             value,
         },
     ) {
@@ -110,7 +122,8 @@ pub fn notify_dword(client_id: i64, address: u16, value: u32) {
     }
 }
 
-pub fn notify_float(client_id: i64, address: u16, value: f32) {
+#[tauri::command]
+pub fn notify_float(client_id: i64, address: u16, read_only: bool, value: f32) {
     #[cfg(debug_assertions)]
     println!(
         "发送浮点值更新 - Client Id: {}, Address: {}, Value: {}",
@@ -124,6 +137,7 @@ pub fn notify_float(client_id: i64, address: u16, value: f32) {
         FloatValue {
             client_id,
             address,
+            read_only,
             value,
         },
     ) {

@@ -5,9 +5,7 @@ import { Button, Select, Space, Modal, Form, Input } from 'antd';
 import { MinusCircleOutlined } from '@ant-design/icons';
 import {
     modbusCreateTCPConnection,
-    ModbusCreateTCPConnectionParam,
     modbusDisconnect,
-    ModbusCreateSerialConnectionParam,
     modbusCreateSerialConnection,
     getSerialPorts
 } from '@/rust-comms';
@@ -24,6 +22,17 @@ interface ConnectionManagerProps {
     onStopMonitor: () => Promise<void>;
 }
 
+interface TCPInfo {
+    ip: string;
+    port: string | number;
+}
+
+interface SerialInfo {
+    serialPort: string;
+    slaveId: number;
+    baudRate: number;
+}
+
 const ConnectionManager: React.FC<ConnectionManagerProps> = ({
     clientId,
     setClientId,
@@ -33,13 +42,13 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
     const [connections, setConnections] = useState<Connection[]>([]);
     const [isTCPModalOpen, setIsTCPModalOpen] = useState(false);
     const [isSerialModalOpen, setIsSerialModalOpen] = useState(false);
-    const [connectTCPForm] = Form.useForm<ModbusCreateTCPConnectionParam>();
-    const [connectSerialForm] = Form.useForm<ModbusCreateSerialConnectionParam>();
+    const [connectTCPForm] = Form.useForm<TCPInfo>();
+    const [connectSerialForm] = Form.useForm<SerialInfo>();
     const [serialPorts, setSerialPorts] = useState<string[]>([]);
 
-    const handleAddConnection = async (values: ModbusCreateTCPConnectionParam) => {
-        values.port = Number(values.port);
-        const newLabel = `${values.ip}:${values.port}`;
+    const handleAddConnection = async (values: TCPInfo) => {
+        const port = Number(values.port);
+        const newLabel = `${values.ip}:${port}`;
 
         if (connections.some(conn => conn.label === newLabel)) {
             Modal.error({
@@ -49,7 +58,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
             return;
         }
 
-        const id = await modbusCreateTCPConnection(values);
+        const id = await modbusCreateTCPConnection(values.ip, port);
         const newConnection = { id, label: newLabel };
         setConnections(prev => [...prev, newConnection]);
         setIsTCPModalOpen(false);
@@ -57,7 +66,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
         setClientId(id);
     };
 
-    const handleAddSerialConnection = async (values: ModbusCreateSerialConnectionParam) => {
+    const handleAddSerialConnection = async (values: SerialInfo) => {
         values.baudRate = Number(values.baudRate);
         values.slaveId = Number(values.slaveId);
         const newLabel = `${values.serialPort}:${values.baudRate}`;
@@ -71,7 +80,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
         }
 
         try {
-            const id = await modbusCreateSerialConnection(values);
+            const id = await modbusCreateSerialConnection(values.serialPort, values.baudRate, values.slaveId);
             const newConnection = { id, label: newLabel };
             setConnections(prev => [...prev, newConnection]);
             setIsSerialModalOpen(false);
@@ -91,7 +100,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
             if (isMonitoring) {
                 await onStopMonitor();
             }
-            await modbusDisconnect({ clientId: id });
+            await modbusDisconnect(clientId);
             setClientId(undefined);
         }
         setConnections(prev => prev.filter(conn => conn.id !== id));
@@ -158,19 +167,19 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
                 onCancel={() => setIsTCPModalOpen(false)}
                 footer={null}
             >
-                <Form<ModbusCreateTCPConnectionParam>
+                <Form<TCPInfo>
                     form={connectTCPForm}
                     layout="vertical"
                     onFinish={handleAddConnection}
                 >
-                    <Form.Item<ModbusCreateTCPConnectionParam>
+                    <Form.Item<TCPInfo>
                         label="IP 地址"
                         name="ip"
                         rules={[{ required: true, message: '请输入IP地址!' }]}
                     >
                         <Input autoComplete="off" />
                     </Form.Item>
-                    <Form.Item<ModbusCreateTCPConnectionParam>
+                    <Form.Item<TCPInfo>
                         label="端口"
                         name="port"
                         rules={[{ required: true, message: '请输入端口号!' }]}
@@ -197,7 +206,7 @@ const ConnectionManager: React.FC<ConnectionManagerProps> = ({
                 onCancel={() => setIsSerialModalOpen(false)}
                 footer={null}
             >
-                <Form<ModbusCreateSerialConnectionParam>
+                <Form<SerialInfo>
                     form={connectSerialForm}
                     layout="vertical"
                     onFinish={handleAddSerialConnection}

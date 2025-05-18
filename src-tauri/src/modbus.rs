@@ -22,7 +22,7 @@ pub enum ModbusError {
     #[error("未找到 ID 为 {0} 的连接")]
     ClientNotFound(i64),
 
-    #[error("其他错误: {0}")]
+    #[error("{0}")]
     Other(String),
 }
 
@@ -231,10 +231,7 @@ impl ModbusManager {
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u16>> {
-        let clients = self.clients.lock().await;
-        let client = clients
-            .get(&client_id)
-            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = self.get_client(client_id).await?;
         let mut client = client.lock().await;
         let value = client.read_holding_registers(address, quantity).await?;
         Ok(value)
@@ -247,10 +244,7 @@ impl ModbusManager {
         address: u16,
         value: u16,
     ) -> Result<()> {
-        let clients = self.clients.lock().await;
-        let client = clients
-            .get(&client_id)
-            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = self.get_client(client_id).await?;
         let mut client = client.lock().await;
         client.write_single_register(address, value).await?;
         Ok(())
@@ -263,10 +257,7 @@ impl ModbusManager {
         address: u16,
         values: &[u16],
     ) -> Result<()> {
-        let clients = self.clients.lock().await;
-        let client = clients
-            .get(&client_id)
-            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = self.get_client(client_id).await?;
         let mut client = client.lock().await;
         client.write_multiple_registers(address, values).await?;
         Ok(())
@@ -279,10 +270,7 @@ impl ModbusManager {
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u16>> {
-        let clients = self.clients.lock().await;
-        let client = clients
-            .get(&client_id)
-            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = self.get_client(client_id).await?;
         let mut client = client.lock().await;
         let vlaue = client.read_input_registers(address, quantity).await?;
         Ok(vlaue)
@@ -295,10 +283,7 @@ impl ModbusManager {
         address: u16,
         quantity: u16,
     ) -> Result<Vec<bool>> {
-        let clients = self.clients.lock().await;
-        let client = clients
-            .get(&client_id)
-            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = self.get_client(client_id).await?;
         let mut client = client.lock().await;
         let value = client.read_coils(address, quantity).await?;
         Ok(value)
@@ -306,10 +291,7 @@ impl ModbusManager {
 
     // 写入单个线圈
     pub async fn write_single_coil(&self, client_id: i64, address: u16, value: bool) -> Result<()> {
-        let clients = self.clients.lock().await;
-        let client = clients
-            .get(&client_id)
-            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = self.get_client(client_id).await?;
         let mut client = client.lock().await;
         client.write_single_coil(address, value).await?;
         Ok(())
@@ -325,6 +307,15 @@ impl ModbusManager {
     pub async fn connection_exists(&self, client_id: i64) -> bool {
         let clients = self.clients.lock().await;
         clients.contains_key(&client_id)
+    }
+
+    async fn get_client(&self, client_id: i64) -> Result<Arc<Mutex<client::Context>>> {
+        let clients = self.clients.lock().await;
+        let client = clients
+            .get(&client_id)
+            .ok_or_else(|| ModbusError::ClientNotFound(client_id))?;
+        let client = client.clone();
+        Ok(client)
     }
 }
 

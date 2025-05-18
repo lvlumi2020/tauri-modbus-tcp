@@ -11,30 +11,119 @@ use crate::modbus::{ModbusError, MODBUS_MANAGER};
 use crate::notice::{notify_bool, notify_dword, notify_float, notify_word};
 
 #[derive(Error, Debug)]
-pub enum TaskError {
+pub enum PLCError {
     #[error("任务未找到: 客户端 ID {client_id}, 地址 {address}")]
     TaskNotFound { client_id: i64, address: u16 },
 
-    #[error("Modbus 错误: {0}")]
-    ModbusError(#[from] ModbusError),
-
-    #[error("其他错误: {0}")]
+    #[error("{0}")]
     Other(String),
 }
 
-type Result<T> = std::result::Result<T, TaskError>;
+type Result<T> = std::result::Result<T, PLCError>;
 
-pub struct TaskScheduler {
-    tasks: Arc<Mutex<HashMap<i64, TaskDefinition>>>,
-    tasks_by_interval: Arc<Mutex<HashMap<u64, HashSet<i64>>>>,
-    timer_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    counter: Arc<Mutex<u64>>,
-    running: Arc<Mutex<bool>>,
-    execution_lock: Arc<Mutex<()>>,
+type TaskKey = (i64, bool, bool, u16);
+
+impl From<ModbusError> for PLCError {
+    fn from(err: ModbusError) -> Self {
+        PLCError::Other(err.to_string())
+    }
 }
 
 lazy_static! {
     pub static ref TASK_SCHEDULER: TaskScheduler = TaskScheduler::new();
+}
+
+pub async fn read_bool(client_id: i64, address: u16) -> Result<bool> {
+    let values = MODBUS_MANAGER.read_coils(client_id, address, 1).await?;
+    Ok(values[0])
+}
+
+pub async fn read_word(client_id: i64, address: u16, read_only: bool) -> Result<u16> {
+    if read_only {
+        let values = MODBUS_MANAGER
+            .read_input_registers(client_id, address, 1)
+            .await?;
+        Ok(values[0])
+    } else {
+        let values = MODBUS_MANAGER
+            .read_holding_registers(client_id, address, 1)
+            .await?;
+        Ok(values[0])
+    }
+}
+
+pub async fn read_dword(client_id: i64, address: u16, read_only: bool) -> Result<u32> {
+    let values = if read_only {
+        MODBUS_MANAGER
+            .read_input_registers(client_id, address, 2)
+            .await?
+    } else {
+        MODBUS_MANAGER
+            .read_holding_registers(client_id, address, 2)
+            .await?
+    };
+    let value = (values[1] as u32) << 16 | (values[0] as u32);
+    Ok(value)
+}
+
+pub async fn read_float(client_id: i64, address: u16, read_only: bool) -> Result<f32> {
+    let values = if read_only {
+        MODBUS_MANAGER
+            .read_input_registers(client_id, address, 2)
+            .await?
+    } else {
+        MODBUS_MANAGER
+            .read_holding_registers(client_id, address, 2)
+            .await?
+    };
+    let bits = (values[1] as u32) << 16 | (values[0] as u32);
+    let value = f32::from_bits(bits);
+    Ok(value)
+}
+
+pub async fn write_bool(client_id: i64, address: u16, value: bool) -> Result<()> {
+    MODBUS_MANAGER
+        .write_single_coil(client_id, address, value)
+        .await?;
+    Ok(())
+}
+
+pub async fn write_word(client_id: i64, address: u16, value: u16) -> Result<()> {
+    MODBUS_MANAGER
+        .write_single_register(client_id, address, value)
+        .await?;
+    Ok(())
+}
+
+pub async fn write_dword(client_id: i64, address: u16, value: u32) -> Result<()> {
+    let low = (value & 0xFFFF) as u16;
+    let high = ((value >> 16) & 0xFFFF) as u16;
+    MODBUS_MANAGER
+        .write_multiple_registers(client_id, address, &vec![low, high])
+        .await?;
+    Ok(())
+}
+
+pub async fn write_float(client_id: i64, address: u16, value: f32) -> Result<()> {
+    let bits = value.to_bits();
+    let low = (bits & 0xFFFF) as u16;
+    let high = ((bits >> 16) & 0xFFFF) as u16;
+    MODBUS_MANAGER
+        .write_multiple_registers(client_id, address, &vec![low, high])
+        .await?;
+    Ok(())
+}
+
+fn generate_task_key(
+    client_id: i64,
+    address: u16,
+    data_type: DataType,
+    read_only: bool,
+) -> TaskKey {
+    if data_type == DataType::Bool {
+        return (client_id, false, false, address);
+    }
+    (client_id, true, read_only, address)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -57,11 +146,21 @@ impl From<u8> for DataType {
     }
 }
 
+pub struct TaskScheduler {
+    tasks: Arc<Mutex<HashMap<TaskKey, TaskDefinition>>>,
+    tasks_by_interval: Arc<Mutex<HashMap<u64, HashSet<TaskKey>>>>,
+    timer_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    counter: Arc<Mutex<u64>>,
+    running: Arc<Mutex<bool>>,
+    execution_lock: Arc<Mutex<()>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskDefinition {
     pub client_id: i64,
     pub address: u16,
     pub data_type: DataType,
+    pub read_only: bool,
     pub interval_ms: u64,
 }
 
@@ -77,60 +176,65 @@ impl TaskScheduler {
         }
     }
 
-    fn generate_task_id(client_id: i64, address: u16) -> i64 {
-        (client_id << 16) | (address as i64)
-    }
-
     pub async fn register_task(
         &self,
         client_id: i64,
         interval_ms: u64,
         address: u16,
         data_type: u8,
+        read_only: bool,
     ) -> Result<()> {
         // 验证间隔时间
         if interval_ms == 0 {
-            return Err(TaskError::Other("间隔时间不能为零".to_string()));
+            return Err(PLCError::Other("间隔时间不能为零".to_string()));
         }
 
         let data_type = DataType::from(data_type);
-        let task_id = Self::generate_task_id(client_id, address);
+        let task_key = generate_task_key(client_id, address, data_type, read_only);
         let task = TaskDefinition {
             client_id,
             address,
             data_type,
+            read_only,
             interval_ms,
         };
 
         // 添加任务到任务列表
         let mut tasks = self.tasks.lock().await;
-        tasks.insert(task_id, task);
+        tasks.insert(task_key, task);
 
         // 添加任务到间隔索引
         let mut tasks_by_interval = self.tasks_by_interval.lock().await;
         let group = tasks_by_interval
             .entry(interval_ms)
             .or_insert_with(HashSet::new);
-        group.insert(task_id);
+        group.insert(task_key);
 
         Ok(())
     }
 
-    pub async fn unregister_task(&self, client_id: i64, address: u16) -> Result<()> {
-        let task_id = Self::generate_task_id(client_id, address);
+    pub async fn unregister_task(
+        &self,
+        client_id: i64,
+        address: u16,
+        data_type: u8,
+        read_only: bool,
+    ) -> Result<()> {
+        let data_type = DataType::from(data_type);
+        let task_key = generate_task_key(client_id, address, data_type, read_only);
         let mut tasks = self.tasks.lock().await;
 
-        if let Some(task) = tasks.remove(&task_id) {
+        if let Some(task) = tasks.remove(&task_key) {
             let mut tasks_by_interval = self.tasks_by_interval.lock().await;
             if let Some(group) = tasks_by_interval.get_mut(&task.interval_ms) {
-                group.remove(&task_id);
+                group.remove(&task_key);
                 if group.is_empty() {
                     tasks_by_interval.remove(&task.interval_ms);
                 }
             }
             Ok(())
         } else {
-            Err(TaskError::TaskNotFound { client_id, address })
+            Err(PLCError::TaskNotFound { client_id, address })
         }
     }
 
@@ -211,91 +315,29 @@ impl TaskScheduler {
             return;
         }
 
+        let client_id = task.client_id;
+        let address = task.address;
+        let read_only = task.read_only;
+
         match task.data_type {
             DataType::Bool => {
-                match MODBUS_MANAGER
-                    .read_coils(task.client_id, task.address, 1)
-                    .await
-                {
-                    Ok(values) => {
-                        #[cfg(debug_assertions)]
-                        println!(
-                            "读取Bool - Client ID: {}, Address: {}, Value: {:?}",
-                            task.client_id, task.address, values
-                        );
-
-                        if let Some(&value) = values.first() {
-                            notify_bool(task.client_id, task.address, value);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("读取Bool时发生错误: {}", e);
-                    }
+                if let Ok(value) = read_bool(client_id, address).await {
+                    notify_bool(client_id, address, value);
                 }
             }
             DataType::Word => {
-                match MODBUS_MANAGER
-                    .read_holding_registers(task.client_id, task.address, 1)
-                    .await
-                {
-                    Ok(values) => {
-                        #[cfg(debug_assertions)]
-                        println!(
-                            "读取Word - Client ID: {}, Address: {}, Value: {:?}",
-                            task.client_id, task.address, values
-                        );
-
-                        if let Some(&value) = values.first() {
-                            notify_word(task.client_id, task.address, value);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("读取Word时发生错误: {}", e);
-                    }
+                if let Ok(value) = read_word(client_id, address, read_only).await {
+                    notify_word(client_id, address, read_only, value);
                 }
             }
             DataType::Dword => {
-                match MODBUS_MANAGER
-                    .read_holding_registers(task.client_id, task.address, 2)
-                    .await
-                {
-                    Ok(values) => {
-                        #[cfg(debug_assertions)]
-                        println!(
-                            "读取Dword - Client ID: {}, Address: {}, Value: {:?}",
-                            task.client_id, task.address, values
-                        );
-
-                        if values.len() >= 2 {
-                            let value = (values[1] as u32) << 16 | (values[0] as u32);
-                            notify_dword(task.client_id, task.address, value);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("读取Dword时发生错误: {}", e);
-                    }
+                if let Ok(value) = read_dword(client_id, address, read_only).await {
+                    notify_dword(client_id, address, read_only, value);
                 }
             }
             DataType::Float => {
-                match MODBUS_MANAGER
-                    .read_holding_registers(task.client_id, task.address, 2)
-                    .await
-                {
-                    Ok(values) => {
-                        #[cfg(debug_assertions)]
-                        println!(
-                            "读取Float - Client ID: {}, Address: {}, Value: {:?}",
-                            task.client_id, task.address, values
-                        );
-                        if values.len() >= 2 {
-                            let bits = (values[1] as u32) << 16 | (values[0] as u32);
-                            let value = f32::from_bits(bits);
-                            notify_float(task.client_id, task.address, value);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("读取Float时发生错误: {}", e);
-                    }
+                if let Ok(value) = read_float(client_id, address, read_only).await {
+                    notify_float(client_id, address, read_only, value);
                 }
             }
         }
