@@ -12,6 +12,7 @@ interface MonitorManagerProps {
 
 interface MonitorData {
     key: string;
+    name?: string;
     address: number;
     dataType: number;
     readOnly: boolean;
@@ -29,41 +30,18 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
 
     const monitorData = useMemo<MonitorData[]>(() => {
         let data: MonitorData[] = []
-        monitorItems?.forEach(([address, dataType, readOnly]) => {
-            if (dataType == 1) {
-                if (address in monitorValues[0]) {
-                    data.push({
-                        key: `11${address}`,
-                        address,
-                        dataType,
-                        readOnly,
-                        value: monitorValues[0][address]
-                    })
-                }
-            }
-            else {
-                if (readOnly) {
-                    if (address in monitorValues[1][0]) {
-                        data.push({
-                            key: `01${address}`,
-                            address,
-                            dataType,
-                            readOnly,
-                            value: monitorValues[1][0][address]
-                        })
-                    }
-                }
-                else {
-                    if (address in monitorValues[1][1]) {
-                        data.push({
-                            key: `00${address}`,
-                            address,
-                            dataType,
-                            readOnly,
-                            value: monitorValues[1][1][address]
-                        })
-                    }
-                }
+        monitorItems?.forEach(({ name, address, dataType, readOnly }) => {
+            const monitorValue = dataType === 1 ? monitorValues[0] : monitorValues[1][readOnly ? 0 : 1];
+            if (address in monitorValue) {
+                const key = `${readOnly ? 1 : 0}${dataType}${address}`;
+                data.push({
+                    key: key,
+                    name,
+                    address,
+                    dataType,
+                    readOnly,
+                    value: monitorValue[address]
+                })
             }
         });
         console.log(data)
@@ -71,7 +49,9 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
     }, [monitorItems, monitorValues])
 
     // 表格列定义
-    const tableColumns: ColumnsType = [
+    const tableColumns: ColumnsType<MonitorData> = [
+        { dataIndex: 'key', key: 'key', hidden: true },
+        { title: '备注名', dataIndex: 'name', key: 'name', width: 100 },
         { title: '地址', dataIndex: 'address', key: 'address', width: 100 },
         {
             title: '数据类型', dataIndex: 'dataType', key: 'dataType',
@@ -124,10 +104,10 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
 
             {isMonitoring && Object.keys(monitorValues).length > 0 && (
                 <div style={{ marginTop: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
-                    <Table
+                    <Table<MonitorData>
                         dataSource={monitorData}
                         columns={tableColumns}
-                        rowKey="address"
+                        rowKey="key"
                         pagination={false}
                         bordered
                         style={{ background: 'white' }}
@@ -152,6 +132,12 @@ const MonitorManager: React.FC<MonitorManagerProps> = ({ clientId }) => {
                             <>
                                 {fields.map(({ key, name, ...restField }, index, array) => (
                                     <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                                        <Form.Item
+                                            {...restField}
+                                            name={[name, 'name']}
+                                        >
+                                            <Input placeholder="备注名" />
+                                        </Form.Item>
                                         <Form.Item
                                             {...restField}
                                             name={[name, 'address']}

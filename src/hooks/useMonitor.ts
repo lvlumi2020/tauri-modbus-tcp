@@ -14,6 +14,13 @@ export type MonitorValue = [
   [Record<number, number>, Record<number, number>],
 ];
 
+export interface MonitorItem {
+  name?: string;
+  address: number;
+  dataType: number;
+  readOnly: boolean;
+}
+
 /**
  * 自定义钩子，用于管理Modbus监控状态
  * @param currentClientId 当前连接的客户端ID
@@ -26,9 +33,7 @@ export const useMonitor = (currentClientId: number | undefined) => {
   ]);
   const [listeners, setListeners] = useState<Promise<() => void>[]>([]);
   const [unregisters, setUnregisters] = useState<(() => Promise<void>)[]>([]);
-  const [monitorItems, setMonitorItems] = useState<
-    Set<[number, number, boolean]>
-  >(new Set());
+  const [monitorItems, setMonitorItems] = useState<MonitorItem[]>([]);
 
   // 设置监听器
   const setupListeners = async () => {
@@ -97,17 +102,26 @@ export const useMonitor = (currentClientId: number | undefined) => {
   // 开始监控
   const startMonitor = async (
     items: {
+      name?: string;
       address: string | number;
       dataType: string | number;
       readOnly: boolean;
     }[]
   ) => {
     if (!currentClientId) return;
-
     let newUnregisters: (() => Promise<void>)[] = [];
-    let set = new Set<[number, number, boolean]>();
+    let set = new Set<string>();
+    let list: MonitorItem[] = [];
     for (const item of items || []) {
       const { address, dataType, readOnly } = item;
+      const key = `${address}-${dataType}-${readOnly ? 0 : 1}`;
+      if (set.has(key)) continue;
+      list.push({
+        name: item.name,
+        address: Number(address),
+        dataType: Number(dataType),
+        readOnly,
+      });
       await plcRegisterTask(
         currentClientId,
         1000,
@@ -115,8 +129,6 @@ export const useMonitor = (currentClientId: number | undefined) => {
         Number(dataType),
         readOnly
       );
-      set.add([Number(address), Number(dataType), readOnly]);
-
       newUnregisters.push(() =>
         plcUnregisterTask(
           currentClientId,
@@ -126,7 +138,7 @@ export const useMonitor = (currentClientId: number | undefined) => {
         )
       );
     }
-    setMonitorItems(set);
+    setMonitorItems(list);
     setUnregisters(newUnregisters);
     await setupListeners();
     setIsMonitoring(true);
